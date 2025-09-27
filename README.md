@@ -45,12 +45,16 @@ Ask Then Answerは、質問の内容に応じて適切な専門ロールを自�
 
 1. **リポジトリのクローン**
 ```bash
-git clone <repository-url>
-cd NextApp
+git clone https://github.com/kazu5150/langgraph-ask-answer.git
+cd langgraph-ask-answer
 ```
 
-2. **バックエンドのセットアップ**
+2. **Pythonパッケージのインストール**
 ```bash
+# ルートディレクトリから（推奨）
+pip install -r requirements.txt
+
+# または個別に
 cd backend
 pip install -r requirements.txt
 ```
