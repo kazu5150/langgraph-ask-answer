@@ -73,7 +73,7 @@ vision_llm = ChatOpenAI(model="gpt-4o", temperature=0)
 
 # 画像を解析してテキスト説明を生成する関数
 def analyze_image(image_base64: str) -> str:
-    """画像をGPT-4oで解析してテキスト説明を返す"""
+    """単一画像をGPT-4oで解析してテキスト説明を返す"""
     from langchain_core.messages import HumanMessage
 
     message = HumanMessage(
@@ -89,6 +89,37 @@ def analyze_image(image_base64: str) -> str:
         ]
     )
 
+    response = vision_llm.invoke([message])
+    return response.content
+
+# 複数画像を解析してまとめた説明を生成する関数
+def analyze_multiple_images(images_base64: List[str]) -> str:
+    """複数画像をGPT-4oで解析してまとめた説明を返す"""
+    from langchain_core.messages import HumanMessage
+
+    if len(images_base64) == 1:
+        return analyze_image(images_base64[0])
+
+    # 複数画像の場合、まとめて解析
+    content = [
+        {
+            "type": "text",
+            "text": f"以下の{len(images_base64)}枚の画像について、それぞれの内容を説明し、全体として何を表しているかを分析してください。画像間の関連性や違いも含めて詳しく説明してください。"
+        }
+    ]
+
+    # 各画像を追加
+    for i, image_base64 in enumerate(images_base64):
+        content.append({
+            "type": "text",
+            "text": f"\n【画像{i+1}】"
+        })
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}
+        })
+
+    message = HumanMessage(content=content)
     response = vision_llm.invoke([message])
     return response.content
 
@@ -255,13 +286,18 @@ def check_node(state: State) -> Dict[str, Any]:
     return {"current_judge": result.judge, "judgement_reason": result.reason}
 
 # LangGraph: ここでは関数直列で十分（Web API簡素化）
-def run_pipeline(query: str, clarifications: Optional[List[str]] = None, image_base64: Optional[str] = None) -> Dict[str, Any]:
+def run_pipeline(query: str, clarifications: Optional[List[str]] = None, image_base64: Optional[str] = None, images_base64: Optional[List[str]] = None) -> Dict[str, Any]:
     state = State(query=query)
 
-    # 画像がある場合は解析
-    if image_base64:
+    # 画像がある場合は解析（複数画像優先、下位互換対応）
+    images_to_analyze = images_base64 or ([image_base64] if image_base64 else None)
+
+    if images_to_analyze:
         try:
-            state.image_description = analyze_image(image_base64)
+            if len(images_to_analyze) == 1:
+                state.image_description = analyze_image(images_to_analyze[0])
+            else:
+                state.image_description = analyze_multiple_images(images_to_analyze)
         except Exception as e:
             return {
                 "need_clarification": False,
@@ -327,7 +363,8 @@ def run_pipeline(query: str, clarifications: Optional[List[str]] = None, image_b
 class AskRequest(BaseModel):
     query: str = Field(..., description="質問文")
     clarifications: Optional[List[str]] = Field(default=None, description="不足質問への回答（1回目は省略）")
-    image_base64: Optional[str] = Field(default=None, description="Base64エンコードされた画像データ")
+    image_base64: Optional[str] = Field(default=None, description="Base64エンコードされた画像データ（単一画像・下位互換用）")
+    images_base64: Optional[List[str]] = Field(default=None, description="Base64エンコードされた複数画像データ")
 
 class AskResponse(BaseModel):
     need_clarification: bool
@@ -339,7 +376,7 @@ class AskResponse(BaseModel):
 
 @app.post("/api/ask", response_model=AskResponse)
 def ask(req: AskRequest):
-    result = run_pipeline(req.query, req.clarifications, req.image_base64)
+    result = run_pipeline(req.query, req.clarifications, req.image_base64, req.images_base64)
     return result
 
 # 画像アップロード用の便利なエンドポイント
