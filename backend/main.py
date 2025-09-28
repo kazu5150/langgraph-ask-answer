@@ -22,7 +22,7 @@ load_dotenv()
 app = FastAPI(title="Ask-Then-Answer API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 必要に応じてNext.jsのURLだけに絞る
+    allow_origins=["*"],  # Vercelデプロイ後は本番URLに変更推奨
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
