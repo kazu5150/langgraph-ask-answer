@@ -69,8 +69,11 @@ npm install
 
 5. **フロントエンド環境変数の設定**
 ```bash
-# frontend/.env.local
+# frontend/.env.local（開発環境用）
 NEXT_PUBLIC_API_BASE=http://localhost:8000
+
+# 本番環境では Vercel の Environment Variables で設定
+# NEXT_PUBLIC_API_BASE=https://langgraph-ask-answer-api.onrender.com
 ```
 
 ## 実行方法
@@ -91,7 +94,14 @@ npm run dev
 
 アプリケーションは http://localhost:3000 でアクセス可能です。
 
-### プロダクション環境
+## 🌐 本番環境（デプロイ済み）
+
+**ライブデモ**: [https://your-app.vercel.app](https://your-vercel-app-url.vercel.app)
+
+- **フロントエンド**: Vercel でホスティング
+- **バックエンドAPI**: Render でホスティング（`https://langgraph-ask-answer-api.onrender.com`）
+
+### ローカルでのプロダクション環境テスト
 
 1. **バックエンド**
 ```bash
@@ -164,6 +174,32 @@ NextApp/
 └── README.md
 ```
 
+## 🚀 デプロイ手順
+
+### Render + Vercel での簡単デプロイ
+
+#### 1. バックエンド（Render）
+1. **[Render](https://render.com)** にサインアップ
+2. **"New Web Service"** → GitHubリポジトリ選択
+3. 設定：
+   - **Root Directory**: `backend`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `gunicorn -c gunicorn_config.py main:app`
+   - **Environment**: `Python 3`
+4. **環境変数**：`OPENAI_API_KEY` を設定
+
+#### 2. フロントエンド（Vercel）
+1. **[Vercel](https://vercel.com)** にサインアップ
+2. **"New Project"** → GitHubリポジトリ選択
+3. 設定：
+   - **Root Directory**: `frontend`
+   - **Framework**: `Next.js`
+4. **環境変数**：`NEXT_PUBLIC_API_BASE` を RenderのURL に設定
+
+### 💰 コスト
+- **Render**: 750時間/月 無料
+- **Vercel**: Hobbyプラン 無料
+
 ## 開発者向け情報
 
 ### バックエンドアーキテクチャ
@@ -182,7 +218,8 @@ NextApp/
 
 ### デバッグ
 
-バックエンドのAPIドキュメントは http://localhost:8000/docs で確認できます。
+- **ローカル**: http://localhost:8000/docs
+- **本番**: https://langgraph-ask-answer-api.onrender.com/docs
 
 ## ライセンス
 
