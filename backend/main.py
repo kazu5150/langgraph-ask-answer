@@ -1,9 +1,12 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import operator
 import re
+import base64
+import io
+from PIL import Image
 from dotenv import load_dotenv
 
 # LangChain / LangGraph
@@ -60,9 +63,34 @@ class State(PydBaseModel):
     need_clarification: bool = False
     clarification_questions: List[str] = []
     extra_context: str = ""
+    image_description: str = ""  # 画像の説明を保存
 
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 llm = llm.configurable_fields(max_tokens=ConfigurableField(id="max_tokens"))
+
+# Vision用のLLM（画像解析用）
+vision_llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+# 画像を解析してテキスト説明を生成する関数
+def analyze_image(image_base64: str) -> str:
+    """画像をGPT-4oで解析してテキスト説明を返す"""
+    from langchain_core.messages import HumanMessage
+
+    message = HumanMessage(
+        content=[
+            {
+                "type": "text",
+                "text": "この画像について詳しく説明してください。画像に含まれる要素、テキスト、オブジェクト、人物、背景などを具体的に記述してください。"
+            },
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}
+            }
+        ]
+    )
+
+    response = vision_llm.invoke([message])
+    return response.content
 
 # 1) ロール選択
 selection_prompt = ChatPromptTemplate.from_template(
@@ -145,6 +173,8 @@ answer_prompt = ChatPromptTemplate.from_template(
 ユーザーの質問:
 {query}
 
+{image_info}
+
 追加コンテキスト（ユーザーからの追加入力・ヒアリング結果）:
 {extra_context}
 
@@ -153,6 +183,7 @@ answer_prompt = ChatPromptTemplate.from_template(
 制約:
 - 箇条書きや段落を使い、簡潔かつ根拠のある説明を心がける
 - 不明点は推測せず、その旨を明示して代替案や次のアクションを提示する
+- 画像が提供されている場合は、画像の内容を参考にして回答してください
 
 最終回答を出力してください。
 """.strip()
@@ -164,11 +195,19 @@ def answering_node(state: State) -> Dict[str, Any]:
     if state.retry_count > 0 and not state.current_judge and state.judgement_reason:
         feedback_block = f"前回の指摘点（品質改善のため必ず反映）:\n- {state.judgement_reason}\n"
 
+    # 画像情報がある場合は含める
+    image_info = ""
+    if state.image_description:
+        image_info = f"画像の内容:\n{state.image_description}\n"
+    else:
+        image_info = "(画像は提供されていません)"
+
     role_details = "\n".join([f"- {v['name']}: {v['details']}" for v in ROLES.values()])
     answer = answer_chain.invoke({
         "role": state.current_role or ROLES["1"]["name"],
         "role_details": role_details,
         "query": state.query,
+        "image_info": image_info,
         "extra_context": state.extra_context or "(追加入力なし)",
         "feedback_block": feedback_block
     })
@@ -216,8 +255,21 @@ def check_node(state: State) -> Dict[str, Any]:
     return {"current_judge": result.judge, "judgement_reason": result.reason}
 
 # LangGraph: ここでは関数直列で十分（Web API簡素化）
-def run_pipeline(query: str, clarifications: Optional[List[str]] = None) -> Dict[str, Any]:
+def run_pipeline(query: str, clarifications: Optional[List[str]] = None, image_base64: Optional[str] = None) -> Dict[str, Any]:
     state = State(query=query)
+
+    # 画像がある場合は解析
+    if image_base64:
+        try:
+            state.image_description = analyze_image(image_base64)
+        except Exception as e:
+            return {
+                "need_clarification": False,
+                "role": "エラー",
+                "answer": f"画像の解析中にエラーが発生しました: {str(e)}",
+                "judge": False,
+                "reason": "画像解析失敗"
+            }
 
     # ロール選択
     s1 = selection_node(state)
@@ -275,6 +327,7 @@ def run_pipeline(query: str, clarifications: Optional[List[str]] = None) -> Dict
 class AskRequest(BaseModel):
     query: str = Field(..., description="質問文")
     clarifications: Optional[List[str]] = Field(default=None, description="不足質問への回答（1回目は省略）")
+    image_base64: Optional[str] = Field(default=None, description="Base64エンコードされた画像データ")
 
 class AskResponse(BaseModel):
     need_clarification: bool
@@ -286,5 +339,40 @@ class AskResponse(BaseModel):
 
 @app.post("/api/ask", response_model=AskResponse)
 def ask(req: AskRequest):
-    result = run_pipeline(req.query, req.clarifications)
+    result = run_pipeline(req.query, req.clarifications, req.image_base64)
     return result
+
+# 画像アップロード用の便利なエンドポイント
+@app.post("/api/upload-image")
+async def upload_image(file: UploadFile = File(...)):
+    """画像ファイルをアップロードしてBase64文字列を返す"""
+    try:
+        # ファイル形式チェック
+        if not file.content_type or not file.content_type.startswith("image/"):
+            return {"error": "画像ファイルのみアップロード可能です"}
+
+        # 画像を読み込み、サイズ調整
+        image_data = await file.read()
+        image = Image.open(io.BytesIO(image_data))
+
+        # 画像サイズを制限（最大1024px）
+        max_size = 1024
+        if image.width > max_size or image.height > max_size:
+            image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+
+        # JPEGに変換してBase64エンコード
+        output = io.BytesIO()
+        if image.mode == "RGBA":
+            image = image.convert("RGB")
+        image.save(output, format="JPEG", quality=85)
+
+        image_base64 = base64.b64encode(output.getvalue()).decode()
+
+        return {
+            "image_base64": image_base64,
+            "filename": file.filename,
+            "size": len(image_base64)
+        }
+
+    except Exception as e:
+        return {"error": f"画像処理エラー: {str(e)}"}

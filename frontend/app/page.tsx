@@ -30,6 +30,11 @@ export default function Home() {
   const [questions, setQuestions] = useState<string[]>([]);
   const [clarifyAnswers, setClarifyAnswers] = useState<string[]>([]);
 
+  // 画像関連の状態
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imageBase64, setImageBase64] = useState<string>("");
+  const [imagePreview, setImagePreview] = useState<string>("");
+
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
   async function firstAsk() {
@@ -46,7 +51,10 @@ export default function Home() {
       const res = await fetch(`${API_BASE}/api/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({
+          query,
+          image_base64: imageBase64 || undefined
+        }),
       });
 
       if (!res.ok) {
@@ -79,7 +87,11 @@ export default function Home() {
       const res = await fetch(`${API_BASE}/api/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, clarifications: clarifyAnswers }),
+        body: JSON.stringify({
+          query,
+          clarifications: clarifyAnswers,
+          image_base64: imageBase64 || undefined
+        }),
       });
 
       if (!res.ok) {
@@ -102,12 +114,52 @@ export default function Home() {
     }
   }
 
+  // 画像ファイル選択時の処理
+  async function handleImageSelect(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // ファイルサイズチェック（5MB制限）
+    if (file.size > 5 * 1024 * 1024) {
+      alert("ファイルサイズは5MB以下にしてください");
+      return;
+    }
+
+    setSelectedImage(file);
+
+    // プレビュー表示用
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result as string;
+      setImagePreview(result);
+    };
+    reader.readAsDataURL(file);
+
+    // Base64変換（API送信用）
+    const base64Reader = new FileReader();
+    base64Reader.onload = (e) => {
+      const result = e.target?.result as string;
+      // "data:image/jpeg;base64," の部分を除去
+      const base64 = result.split(',')[1];
+      setImageBase64(base64);
+    };
+    base64Reader.readAsDataURL(file);
+  }
+
+  // 画像をクリア
+  function clearImage() {
+    setSelectedImage(null);
+    setImageBase64("");
+    setImagePreview("");
+  }
+
   return (
     <main className="min-h-screen bg-background p-6">
       <div className="max-w-3xl mx-auto space-y-4">
         <h1 className="text-2xl font-bold tracking-tight">Ask Then Answer</h1>
         <p className="text-sm text-muted-foreground">
-          質問 →（必要なら）確認 → 回答 → 品質チェック のシンプルなデモ
+          質問 →（必要なら）確認 → 回答 → 品質チェック のシンプルなデモ<br />
+          🖼️ 画像もアップロードして AI に質問できます！
         </p>
 
         <Card className="p-4 space-y-3">
@@ -118,6 +170,37 @@ export default function Home() {
             onChange={(e) => setQuery(e.target.value)}
             className="min-h-[120px]"
           />
+
+          {/* 画像アップロード部分 */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">画像アップロード（任意）</label>
+            <div className="flex items-center gap-2">
+              <Input
+                type="file"
+                accept="image/*"
+                onChange={handleImageSelect}
+                className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:bg-primary file:text-primary-foreground"
+              />
+              {selectedImage && (
+                <Button onClick={clearImage} className="text-sm px-3 py-1 border border-border bg-background hover:bg-accent">
+                  削除
+                </Button>
+              )}
+            </div>
+            {imagePreview && (
+              <div className="mt-2">
+                <img
+                  src={imagePreview}
+                  alt="アップロード画像"
+                  className="max-w-xs max-h-40 object-contain rounded border"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {selectedImage?.name} ({((selectedImage?.size || 0) / 1024 / 1024).toFixed(2)} MB)
+                </p>
+              </div>
+            )}
+          </div>
+
           <div className="flex gap-2">
             <Button onClick={firstAsk} disabled={!query || loading}>
               {loading ? "問い合わせ中..." : "送信"}
@@ -132,6 +215,7 @@ export default function Home() {
                 setQuestions([]);
                 setClarifyAnswers([]);
                 setRole(undefined);
+                clearImage();
               }}
             >
               クリア
