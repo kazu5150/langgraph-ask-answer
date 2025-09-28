@@ -31,10 +31,11 @@ export default function Home() {
   const [clarifyAnswers, setClarifyAnswers] = useState<string[]>([]);
 
   // 画像関連の状態
-  const [selectedImage, setSelectedImage] = useState<File | null>(null);
-  const [imageBase64, setImageBase64] = useState<string>("");
-  const [imagePreview, setImagePreview] = useState<string>("");
+  const [selectedImages, setSelectedImages] = useState<File[]>([]);
+  const [imageBase64List, setImageBase64List] = useState<string[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [isImageModalOpen, setIsImageModalOpen] = useState<boolean>(false);
+  const [currentImageIndex, setCurrentImageIndex] = useState<number>(0);
 
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
@@ -54,7 +55,8 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query,
-          image_base64: imageBase64 || undefined
+          image_base64: imageBase64List.length > 0 ? imageBase64List[0] : undefined,
+          images_base64: imageBase64List.length > 0 ? imageBase64List : undefined
         }),
       });
 
@@ -91,7 +93,8 @@ export default function Home() {
         body: JSON.stringify({
           query,
           clarifications: clarifyAnswers,
-          image_base64: imageBase64 || undefined
+          image_base64: imageBase64List.length > 0 ? imageBase64List[0] : undefined,
+          images_base64: imageBase64List.length > 0 ? imageBase64List : undefined
         }),
       });
 
@@ -115,43 +118,79 @@ export default function Home() {
     }
   }
 
-  // 画像ファイル選択時の処理
+  // 複数画像ファイル選択時の処理
   async function handleImageSelect(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
 
     // ファイルサイズチェック（5MB制限）
-    if (file.size > 5 * 1024 * 1024) {
-      alert("ファイルサイズは5MB以下にしてください");
+    const oversizedFiles = files.filter(file => file.size > 5 * 1024 * 1024);
+    if (oversizedFiles.length > 0) {
+      alert(`以下のファイルは5MB以下にしてください: ${oversizedFiles.map(f => f.name).join(', ')}`);
       return;
     }
 
-    setSelectedImage(file);
+    // 最大5ファイルまで
+    if (files.length > 5) {
+      alert("ファイルは最大5個まで選択できます");
+      return;
+    }
 
-    // プレビュー表示用
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      setImagePreview(result);
-    };
-    reader.readAsDataURL(file);
+    setSelectedImages(files);
 
-    // Base64変換（API送信用）
-    const base64Reader = new FileReader();
-    base64Reader.onload = (e) => {
-      const result = e.target?.result as string;
-      // "data:image/jpeg;base64," の部分を除去
-      const base64 = result.split(',')[1];
-      setImageBase64(base64);
+    // 各ファイルのプレビューとBase64変換を並行処理
+    const previews: string[] = [];
+    const base64List: string[] = [];
+
+    const processFile = (file: File): Promise<{preview: string, base64: string}> => {
+      return new Promise((resolve) => {
+        // プレビュー用
+        const previewReader = new FileReader();
+        previewReader.onload = (e1) => {
+          const preview = e1.target?.result as string;
+
+          // Base64用
+          const base64Reader = new FileReader();
+          base64Reader.onload = (e2) => {
+            const result = e2.target?.result as string;
+            const base64 = result.split(',')[1];
+            resolve({ preview, base64 });
+          };
+          base64Reader.readAsDataURL(file);
+        };
+        previewReader.readAsDataURL(file);
+      });
     };
-    base64Reader.readAsDataURL(file);
+
+    // 全ファイルの処理を待つ
+    try {
+      const results = await Promise.all(files.map(processFile));
+      setImagePreviews(results.map(r => r.preview));
+      setImageBase64List(results.map(r => r.base64));
+    } catch (error) {
+      console.error("ファイル処理エラー:", error);
+      alert("ファイルの処理中にエラーが発生しました");
+    }
   }
 
   // 画像をクリア
-  function clearImage() {
-    setSelectedImage(null);
-    setImageBase64("");
-    setImagePreview("");
+  function clearImages() {
+    setSelectedImages([]);
+    setImageBase64List([]);
+    setImagePreviews([]);
+    setCurrentImageIndex(0);
+  }
+
+  // 個別の画像を削除
+  function removeImage(index: number) {
+    setSelectedImages(prev => prev.filter((_, i) => i !== index));
+    setImageBase64List(prev => prev.filter((_, i) => i !== index));
+    setImagePreviews(prev => prev.filter((_, i) => i !== index));
+
+    // 現在表示中の画像を削除した場合、インデックスを調整
+    if (index === currentImageIndex && currentImageIndex > 0) {
+      setCurrentImageIndex(currentImageIndex - 1);
+    }
   }
 
   // Escキーでモーダルを閉じる
@@ -195,25 +234,44 @@ export default function Home() {
               <Input
                 type="file"
                 accept="image/*"
+                multiple
                 onChange={handleImageSelect}
                 className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:bg-primary file:text-primary-foreground"
               />
-              {selectedImage && (
-                <Button onClick={clearImage} className="text-sm px-3 py-1 border border-border bg-background hover:bg-accent">
-                  削除
+              {selectedImages.length > 0 && (
+                <Button onClick={clearImages} className="text-sm px-3 py-1 border border-border bg-background hover:bg-accent">
+                  全削除
                 </Button>
               )}
             </div>
-            {imagePreview && (
+            {imagePreviews.length > 0 && (
               <div className="mt-2">
-                <img
-                  src={imagePreview}
-                  alt="アップロード画像"
-                  className="max-w-xs max-h-40 object-contain rounded border cursor-pointer hover:opacity-80 transition-opacity"
-                  onClick={() => setIsImageModalOpen(true)}
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  {selectedImage?.name} ({((selectedImage?.size || 0) / 1024 / 1024).toFixed(2)} MB)
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {imagePreviews.map((preview, index) => (
+                    <div key={index} className="relative group">
+                      <img
+                        src={preview}
+                        alt={`アップロード画像 ${index + 1}`}
+                        className="w-full h-24 object-cover rounded border cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => {
+                          setCurrentImageIndex(index);
+                          setIsImageModalOpen(true);
+                        }}
+                      />
+                      <button
+                        onClick={() => removeImage(index)}
+                        className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        ×
+                      </button>
+                      <div className="absolute bottom-1 left-1 bg-black bg-opacity-70 text-white text-xs px-1 rounded">
+                        {index + 1}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {selectedImages.length}個のファイル • 合計 {(selectedImages.reduce((sum, file) => sum + file.size, 0) / 1024 / 1024).toFixed(2)} MB
                   <span className="text-blue-600 ml-2">クリックで拡大</span>
                 </p>
               </div>
@@ -234,7 +292,7 @@ export default function Home() {
                 setQuestions([]);
                 setClarifyAnswers([]);
                 setRole(undefined);
-                clearImage();
+                clearImages();
               }}
             >
               クリア
@@ -297,18 +355,41 @@ export default function Home() {
         )}
 
         {/* 画像拡大表示モーダル */}
-        {isImageModalOpen && imagePreview && (
+        {isImageModalOpen && imagePreviews.length > 0 && (
           <div
             className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
             onClick={() => setIsImageModalOpen(false)}
           >
             <div className="relative max-w-4xl max-h-full">
               <img
-                src={imagePreview}
-                alt="拡大画像"
+                src={imagePreviews[currentImageIndex]}
+                alt={`拡大画像 ${currentImageIndex + 1}`}
                 className="max-w-full max-h-full object-contain rounded-lg"
                 onClick={(e) => e.stopPropagation()}
               />
+
+              {/* 複数画像がある場合のナビゲーション */}
+              {selectedImages.length > 1 && (
+                <>
+                  <button
+                    onClick={() => setCurrentImageIndex((prev) => (prev > 0 ? prev - 1 : selectedImages.length - 1))}
+                    className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-white bg-opacity-80 hover:bg-opacity-100 rounded-full p-2 transition-all"
+                  >
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="w-6 h-6">
+                      <path d="M15 18L9 12L15 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => setCurrentImageIndex((prev) => (prev < selectedImages.length - 1 ? prev + 1 : 0))}
+                    className="absolute right-16 top-1/2 transform -translate-y-1/2 bg-white bg-opacity-80 hover:bg-opacity-100 rounded-full p-2 transition-all"
+                  >
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="w-6 h-6">
+                      <path d="M9 18L15 12L9 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                </>
+              )}
+
               <button
                 onClick={() => setIsImageModalOpen(false)}
                 className="absolute top-4 right-4 bg-white bg-opacity-80 hover:bg-opacity-100 rounded-full p-2 transition-all"
@@ -332,7 +413,8 @@ export default function Home() {
               </button>
               <div className="absolute bottom-4 left-4 bg-black bg-opacity-70 text-white px-3 py-2 rounded">
                 <p className="text-sm">
-                  {selectedImage?.name} • {((selectedImage?.size || 0) / 1024 / 1024).toFixed(2)} MB
+                  {selectedImages[currentImageIndex]?.name} • {((selectedImages[currentImageIndex]?.size || 0) / 1024 / 1024).toFixed(2)} MB
+                  {selectedImages.length > 1 && ` • ${currentImageIndex + 1}/${selectedImages.length}`}
                 </p>
               </div>
             </div>
