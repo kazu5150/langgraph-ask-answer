@@ -49,12 +49,8 @@ git clone https://github.com/kazu5150/langgraph-ask-answer.git
 cd langgraph-ask-answer
 ```
 
-2. **Pythonパッケージのインストール**
+2. **バックエンド（Python）パッケージのインストール**
 ```bash
-# ルートディレクトリから（推奨）
-pip install -r requirements.txt
-
-# または個別に
 cd backend
 pip install -r requirements.txt
 ```
