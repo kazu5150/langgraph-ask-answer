@@ -42,41 +42,64 @@ export default function Home() {
     setQuestions([]);
     setClarifyAnswers([]);
 
-    const res = await fetch(`${API_BASE}/api/ask`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query }),
-    });
-    const data: AskResponse = await res.json();
+    try {
+      const res = await fetch(`${API_BASE}/api/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
 
-    setLoading(false);
-    setRole(data.role);
-    if (data.need_clarification) {
-      setNeedsClarify(true);
-      setQuestions(data.clarification_questions || []);
-      setClarifyAnswers((data.clarification_questions || []).map(() => ""));
-    } else {
-      setAnswer(data.answer);
-      setJudge(data.judge);
-      setReason(data.reason);
+      if (!res.ok) {
+        throw new Error(`API Error: ${res.status} ${res.statusText}`);
+      }
+
+      const data: AskResponse = await res.json();
+
+      setRole(data.role);
+      if (data.need_clarification) {
+        setNeedsClarify(true);
+        setQuestions(data.clarification_questions || []);
+        setClarifyAnswers((data.clarification_questions || []).map(() => ""));
+      } else {
+        setAnswer(data.answer);
+        setJudge(data.judge);
+        setReason(data.reason);
+      }
+    } catch (error) {
+      console.error("API接続エラー:", error);
+      setAnswer(`エラーが発生しました: ${error instanceof Error ? error.message : 'Unknown error'}\n\n設定確認:\nAPI_BASE = ${API_BASE}`);
+    } finally {
+      setLoading(false);
     }
   }
 
   async function sendClarifications() {
     setLoading(true);
-    const res = await fetch(`${API_BASE}/api/ask`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, clarifications: clarifyAnswers }),
-    });
-    const data: AskResponse = await res.json();
-    setLoading(false);
+    try {
+      const res = await fetch(`${API_BASE}/api/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, clarifications: clarifyAnswers }),
+      });
 
-    setNeedsClarify(false);
-    setAnswer(data.answer);
-    setJudge(data.judge);
-    setReason(data.reason);
-    setRole(data.role);
+      if (!res.ok) {
+        throw new Error(`API Error: ${res.status} ${res.statusText}`);
+      }
+
+      const data: AskResponse = await res.json();
+
+      setNeedsClarify(false);
+      setAnswer(data.answer);
+      setJudge(data.judge);
+      setReason(data.reason);
+      setRole(data.role);
+    } catch (error) {
+      console.error("API接続エラー:", error);
+      setAnswer(`エラーが発生しました: ${error instanceof Error ? error.message : 'Unknown error'}\n\n設定確認:\nAPI_BASE = ${API_BASE}`);
+      setNeedsClarify(false);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
