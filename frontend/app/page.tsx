@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,7 @@ export default function Home() {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imageBase64, setImageBase64] = useState<string>("");
   const [imagePreview, setImagePreview] = useState<string>("");
+  const [isImageModalOpen, setIsImageModalOpen] = useState<boolean>(false);
 
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
@@ -153,6 +154,22 @@ export default function Home() {
     setImagePreview("");
   }
 
+  // Escキーでモーダルを閉じる
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && isImageModalOpen) {
+        setIsImageModalOpen(false);
+      }
+    }
+
+    if (isImageModalOpen) {
+      document.addEventListener("keydown", handleKeyDown);
+      return () => {
+        document.removeEventListener("keydown", handleKeyDown);
+      };
+    }
+  }, [isImageModalOpen]);
+
   return (
     <main className="min-h-screen bg-background p-6">
       <div className="max-w-3xl mx-auto space-y-4">
@@ -192,10 +209,12 @@ export default function Home() {
                 <img
                   src={imagePreview}
                   alt="アップロード画像"
-                  className="max-w-xs max-h-40 object-contain rounded border"
+                  className="max-w-xs max-h-40 object-contain rounded border cursor-pointer hover:opacity-80 transition-opacity"
+                  onClick={() => setIsImageModalOpen(true)}
                 />
                 <p className="text-xs text-muted-foreground mt-1">
                   {selectedImage?.name} ({((selectedImage?.size || 0) / 1024 / 1024).toFixed(2)} MB)
+                  <span className="text-blue-600 ml-2">クリックで拡大</span>
                 </p>
               </div>
             )}
@@ -275,6 +294,49 @@ export default function Home() {
               {reason && <span className="text-sm text-muted-foreground">（理由: {reason}）</span>}
             </div>
           </Card>
+        )}
+
+        {/* 画像拡大表示モーダル */}
+        {isImageModalOpen && imagePreview && (
+          <div
+            className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+            onClick={() => setIsImageModalOpen(false)}
+          >
+            <div className="relative max-w-4xl max-h-full">
+              <img
+                src={imagePreview}
+                alt="拡大画像"
+                className="max-w-full max-h-full object-contain rounded-lg"
+                onClick={(e) => e.stopPropagation()}
+              />
+              <button
+                onClick={() => setIsImageModalOpen(false)}
+                className="absolute top-4 right-4 bg-white bg-opacity-80 hover:bg-opacity-100 rounded-full p-2 transition-all"
+              >
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="w-6 h-6"
+                >
+                  <path
+                    d="M18 6L6 18M6 6L18 18"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+              <div className="absolute bottom-4 left-4 bg-black bg-opacity-70 text-white px-3 py-2 rounded">
+                <p className="text-sm">
+                  {selectedImage?.name} • {((selectedImage?.size || 0) / 1024 / 1024).toFixed(2)} MB
+                </p>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </main>
